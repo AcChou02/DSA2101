@@ -1,0 +1,73 @@
+---
+title: "Tutorial 5"
+author: "Andrew Chou"
+date: "23 Spetember 2021"
+output:
+  html_document:
+    toc: true
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Question 1: Number of couriers
+```{r, warning = FALSE, message = FALSE}
+library(tidyverse)
+absent <- read_csv2("../data/Absenteeism_at_work.csv") %>% mutate(ID = as.integer(ID))
+couriers <- absent %>% select("ID") %>% n_distinct()
+couriers
+```
+There are `r couriers` couriers in the dataset.
+
+## Question 2: Max absences
+```{r}
+max_absence_tbl <- absent %>% select(ID, `Reason for absence`, `Absenteeism time in hours`) %>% top_n(n = 7)
+max_absence_tbl
+```
+
+## Question 3: Unknown reason for absence
+```{r}
+reason_tbl <- absent %>% select(ID, `Reason for absence`, `Disciplinary failure`, `Absenteeism time in hours`) %>% filter(`Reason for absence` == 0)
+reason_tbl
+```
+I observe that all but three of the couriers have disciplinary failure, and the absenteeism time are all 0 hours.
+
+## Question 4: Remove disciplinary failure
+```{r}
+absent <- absent %>% filter(`Disciplinary failure` == 0)
+dim(absent)
+```
+
+## Question 5: Recode day of week and season
+```{r}
+absent <- absent %>% mutate(`Day of the week` = recode(`Day of the week`, `2` = "Mon", `3` = "Tue", `4` = "Wed", `5` = "Thu", `6` = "Fri")) %>% mutate(Seasons = recode(Seasons, `1` = "Summer", `2` = "Autumn", `3` = "Winter", `4` = "Spring"))
+absent %>% select(ID, `Day of the week`, Seasons) %>% sample_n(10)
+```
+
+## Question 6: Proportion of absences in Day by Season
+```{r}
+rows <- nrow(absent)
+seasons_tbl <- absent %>% group_by(Seasons) %>% count()
+
+absence_props <- absent %>% group_by(Seasons, `Day of the week`) %>% count() %>% full_join(seasons_tbl, by = "Seasons") %>% mutate(n = n.x, prop = n.x / n.y) %>% select(-c(n.x, n.y))
+
+absence_props
+```
+
+## Question 7: Summaries by courier
+```{r}
+absent_stats <- absent %>% select(ID, `Absenteeism time in hours`) %>% group_by(ID) %>% summarize(abs_time = sum(`Absenteeism time in hours`), abs_count = n())
+
+courier_summary <- absent %>% select(ID, `Absenteeism time in hours`) %>% group_by(ID) %>% summarize(v = quantile(`Absenteeism time in hours`), q = c("min", "lower", "median", "upper", "max")) %>% pivot_wider(names_from = q, values_from = v) %>% inner_join(absent_stats) %>% mutate(abs_time = as.integer(abs_time))
+
+courier_summary
+```
+The top 3 diligent couriers have ID numbers 4, 8, and 35. The bottom 3 are numbers 3, 14, and 11.
+
+## Question 8: Status Changes
+```{r}
+absent %>% select(ID, Education:Pet) %>% distinct() %>% dim()
+```
+The output tibble has 36 rows, one for each courier. This tells us that none of the couriers’ status changed over
+the three years. Even their weight didn't change!

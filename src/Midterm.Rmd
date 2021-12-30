@@ -1,0 +1,187 @@
+---
+title: "Midterm"
+author: "Andrew Chou"
+date: "11 October 2021"
+output:
+  html_document:
+    toc: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Question 1: Read in Data
+```{r, warning = FALSE, message = FALSE}
+library(tidyverse)
+resale1 <- read_csv("../data/resale1.csv")
+resale2 <- read_csv("../data/resale2.csv")
+
+# function to convert yr mo to years
+to_year <- function(s) {
+  year <- as.numeric(substr(s, 1, 2))
+  month <- 0
+  if (nchar(s) > 9) {
+    month <- as.numeric(substr(s, 10, 11))
+  }
+  return(year + month / 12)
+}
+
+to_year <- Vectorize(to_year)
+
+resale2 <- resale2 %>% mutate(remaining_lease = to_year(remaining_lease))
+
+resale_prices <- bind_rows(resale1, resale2)
+
+# check distinct values
+resale_prices <- resale_prices %>% mutate(town = toupper(town)) 
+dim(resale_prices %>% distinct(town))
+dim(resale_prices %>% distinct(flat_type))
+dim(resale_prices %>% distinct(flat_model))
+
+summary(resale_prices)
+
+# The minimum remaining lease is 0 years. This could be a mistake. The minimum possible remaining lease you be at least 43 years since Singapore is only 56 years old. Let's fix it.
+
+wrong_row <- which(resale_prices$remaining_lease < 43)
+resale_prices[wrong_row,]
+resale_prices[wrong_row, "remaining_lease"] <- 1979 + 99 - 2020
+
+summary(resale_prices$remaining_lease)
+
+# check distinct months
+resale_prices %>% distinct(month) %>% pull(1)
+
+# replace "2020-Aug" with "2020-08"
+resale_prices <- resale_prices %>% mutate(month = replace(month, month == "2020-Aug", "2020-08"))
+
+resale_prices %>% distinct(month) %>% pull(1)
+```
+
+## Question 2: Create/Modify Columns
+```{r}
+# function to extract int from string
+to_int <- function(s, start, end) {
+  return(as.numeric(substr(s, start, end)))
+}
+to_int <- Vectorize(to_int)
+
+resale_prices <- resale_prices %>% mutate(price_psm = resale_price / floor_area_sqm, lstorey = to_int(storey_range, 1, 2), ustorey = to_int(storey_range, 7, 8), year = to_int(month, 1, 4), month = to_int(month, 6, 7), town = replace(town, town == "KALLANG/WHAMPOA", "CENTRAL AREA"))
+
+summary(resale_prices)
+dim(resale_prices %>% distinct(town))
+```
+
+## Question 3: Dealing with Inflation
+```{r}
+cpi_table <- read_csv("../data/cpi.csv")
+
+resale_prices <- resale_prices %>% left_join(cpi_table, by = c("year", "month")) %>% mutate(price_psm_adj = price_psm / cpi * 100)
+
+q3 <- resale_prices %>% filter(flat_type == "4 ROOM") %>% group_by(year, month) %>% summarize(Unadjusted = median(price_psm), Adjusted = median(price_psm_adj)) %>% drop_na() %>% pivot_longer(!c(year, month), names_to = "type", values_to = "price") %>% mutate(full_month = as.Date(paste0(year, "-", month, "-01")))
+
+ggplot(data = q3, aes(full_month, price, color = type)) + geom_line() + scale_x_date(date_labels = "%Y-%m", breaks = "2 years") + theme_classic() + xlab("Month") + ylab("Price") + ggtitle("4−Room HDB Resale Prices") + scale_color_manual(values=c("black", "grey")) + theme(legend.position = c(0.2, 0.8), legend.title = element_blank(), legend.background = element_rect( size=0.5, linetype="solid", color = "black"), text = element_text(size = 16))
+
+```
+
+The black line is adjusted for inflation/deflation. When the grey line is far above the black line, it means that the purchasing power of a dollar at the time is less than that of 2019. For example, a dollar is worth around 15 percent more in 2019 than in 2016. From the difference of two lines, we can tell that Singapore experienced a **strong deflation** between 2015 and 2018. After that, the purchasing power remains about the same.
+
+## Question 4: Median Price by Town
+```{r}
+med_price_town_tbl <- resale_prices %>% filter(flat_type == "4 ROOM", year >= 2020) %>% group_by(town) %>% drop_na() %>% summarize(median_price_adj = median(price_psm_adj))
+
+med_price_town_tbl
+```
+
+## Question 5: Robust Slopes
+```{r}
+plm <- function(x, y) {
+  x_pairs <- combn(x, 2)
+  y_pairs <- combn(y, 2)
+  slope <- (y_pairs[2,] - y_pairs[1,]) / (x_pairs[2,] - x_pairs[1,])
+  #remove inf and nan
+  slope <- slope[!is.na(slope) & !is.infinite(slope)]
+  b_hat <- median(slope)
+  a <- y - b_hat * x
+  a_hat <- median(a)
+  return(c(b_hat, a_hat))
+}
+
+# Example data
+x <- c(-4:3, 12); y <- c(0,0,0,0,0,0,-5, 5, 1)
+(ba <- plm(x,y)) # fitted slope and intercept
+
+plot(x,y, main="Fitted slope and intercept are 0")
+abline(a=ba[2], b=ba[1], lty=2, col="red")
+```
+
+## Question 6: Rate of price increase by location
+```{r}
+q6 <- resale_prices %>% filter(flat_type == "4 ROOM", year >= 2020) %>% group_by(year, month, town) %>% drop_na() %>% summarize(median_price_psm_adj = median(price_psm_adj)) %>% mutate(month_num = (year - 2020) * 12 + month)
+
+calc_town_inc_rate <- function(t) {
+  x <- q6 %>% filter(town == t) %>% pull(5)
+  y <- q6 %>% filter(town == t) %>% pull(4)
+  r <- plm(x, y)
+  return(r[1])
+}
+
+calc_town_inc_rate <- Vectorize(calc_town_inc_rate)
+
+all_towns <- resale_prices %>% distinct(town) %>% pull(1)
+
+q6_res <- calc_town_inc_rate(all_towns)
+
+head(sort(q6_res, decreasing = TRUE), 3)
+
+head(sort(q6_res), 3)
+```
+CHOA CHU KANG, CLEMENTI, and CENTRAL AREA had the greatest rate of increase with 93, 84, and 84 dollars per sqm per month respectively. SERANGOON, MARINE PARADE, and BUKIT TIMAH had the lowest rate of increase with 1, 6, and 9 dollars per sqm per month respectively.
+
+## Question 7: Flat Models
+```{r}
+excluded_models <- setdiff((resale_prices %>% distinct(flat_model) %>% pull(1)), (resale_prices %>% filter(year >= 2020, flat_type == "4 ROOM")  %>% distinct(flat_model) %>% pull(1)))
+
+zeroes_df <- data.frame(matrix(ncol = 8, nrow = 25))
+colnames(zeroes_df) <- excluded_models
+
+resale_prices %>% group_by(town, flat_model) %>% filter(year >= 2020, flat_type == "4 ROOM")  %>% summarize(count = n()) %>% complete() %>% pivot_wider(names_from = flat_model, values_from = count) %>% cbind(zeroes_df) %>% replace(is.na(.), 0)
+```
+By manually inspecting the tibble, I discovered that Type S1 can only be found in CENTRAL AREA. Additionally, both Premium Apartment Loft and Terrace can only be found in QUEENSTOWN.
+
+## Question 8: Adjust Planning Areas
+```{r}
+library(sf)
+pln <- read_rds("../data/sg_planning_areas.rds") %>% select(PLN_AREA_N, geometry)
+
+central <- c("KALLANG", "NOVENA", "TANGLIN", "DOWNTOWN CORE", "MUSEUM", "NEWTON", "ORCHARD", "OUTRAM", "RIVER VALLEY", "ROCHOR", "SINGAPORE RIVER")
+
+to_merge <- filter(pln, PLN_AREA_N %in% central)
+merged <- st_union(to_merge)
+
+pln_new <- filter(pln, !PLN_AREA_N %in% central)
+
+pln_new[nrow(pln_new) + 1,] <- list("CENTRAL AREA", merged)
+plot(st_geometry(pln_new), axes = TRUE)
+```
+
+## Question 9: Spatial Moving Averages
+```{r}
+pln_new <- pln_new %>% full_join(resale_prices %>% group_by(town) %>% filter(year == 2015, flat_type == "4 ROOM") %>% summarize(unsmoothed = median(price_psm_adj)), by = c("PLN_AREA_N" = "town"))
+
+smoothing <- function(town) {
+  town_geom <- pln_new[pln_new$PLN_AREA_N == town, ]
+  neighbors <- st_touches(town_geom, pln_new)[[1]]
+  mean(c(pln_new[neighbors, ]$unsmoothed, town_geom$unsmoothed), na.rm = TRUE) 
+}
+smoothing <- Vectorize(smoothing)
+
+q9 <- pln_new %>% mutate(smoothed = smoothing(PLN_AREA_N)) %>% drop_na()
+
+pln_new <- pln_new %>% left_join(data.frame(q9 %>% select(PLN_AREA_N, smoothed)))
+
+plot(pln_new["smoothed"], axes = TRUE)
+```
+
+## Question 10: Discussion
+To check if there is a growing demand of bigger flats, I will make a plot of median floor area vs time. To see if there will be a lesser demand for central locations, I can first calculate the proportions of transactions in the central area each month, then plot it against time. If the line is declining, then that is an evidence to support the claim. However, in question 6 we see that CENTRAL AREA has the third fastest growth rate in price in the past two years, which signifies a huge demand. I highly doubt that the demand for central locations will decrease anytime soon.

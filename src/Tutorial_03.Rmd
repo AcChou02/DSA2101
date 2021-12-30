@@ -1,0 +1,84 @@
+---
+title: "Tutorial 3"
+author: "Andrew Chou"
+date: "07 Spetember 2021"
+output:
+  html_document:
+    toc: true
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Question 1: Arrivals to ER
+
+### Read in the data
+```{r echo = TRUE, results = 'hide', warning = FALSE}
+library(jsonlite)
+er_json <- fromJSON("../data/er_arrivals.json")
+```
+
+### Cast to Date type
+```{r}
+er_json$date <- as.Date(er_json$date)
+class(er_json$date)
+```
+
+### Add num_arrivals column
+```{r}
+num_arrivals <- sapply(er_json$times, length)
+er_json$num_arrivals <- num_arrivals
+head(er_json)
+```
+
+### Create a vector of missing dates
+```{r}
+start <- as.Date("1963-02-01")
+end <- as.Date("1964-03-31")
+all_dates <- seq(start, end, by = "1 day")
+not_in_er <- which(!(all_dates %in% er_json$date))
+missing_dates <- all_dates[not_in_er]
+head(missing_dates)
+```
+
+### Create a dataframe of missing entries
+```{r}
+missing_times <- rep(NA_character_, length(missing_dates))
+missing_arrivals <- rep(0, length(missing_dates))
+missing_colnames <- c("date", "times", "num_arrivals")
+er_missing <- data.frame(missing_dates, missing_times, missing_arrivals)
+colnames(er_missing) <- missing_colnames
+head(er_missing)
+```
+
+### rbind and reorder rows
+```{r}
+er_json <- rbind(er_json, er_missing)
+er_json <- er_json[order(er_json$date), ]
+row.names(er_json) <- NULL
+head(er_json)
+```
+
+## Question 2: Poisonness plot
+### Tabulate and convert to phi_k
+```{r}
+freq <- as.vector(table(er_json$num_arrivals))
+k <- 0:4
+phi <- lfactorial(k) + log(freq / 425)
+phi
+```
+
+### Create plot
+```{r}
+plot(k, phi, pch = 19,
+     bty = 'L', xlab = 'k', ylab = expression(phi[k]),
+     main = 'Poisson−ness for E.R. arrivals')
+lm1 <- lm(phi ~ k)
+slope <- unname(coef(lm1)[2])
+
+abline(lm1, lty = 'dashed')
+text(2, -1, expression(hat(lambda) == 0.56))
+text(0.6, -2, expression(phi[k] == -0.56 * k - 0.56))
+text(0.6, -2.5, expression(r^2 == 0.99))
+```

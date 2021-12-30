@@ -1,0 +1,132 @@
+---
+title: "Tutorial 6"
+author: "Andrew Chou"
+date: "4 October 2021"
+output:
+  html_document:
+    toc: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Question 1: Introduction
+```{r, warning = FALSE, message = FALSE}
+library(tidyverse)
+artist_info <- as.tibble(read.csv("../data/artist_data.csv", fileEncoding = "UTF-8-BOM"))
+artist_info <- artist_info
+artist_work <- as.tibble(read.csv("../data/artwork_data.csv", fileEncoding = "UTF-8-BOM"))
+artist_info
+artist_work
+```
+
+## Question 2: Convert to numeric
+some of the character strings are not properly formatted numbers and hence cannot be converted to the numeric class. Let's see what they are.
+```{r}
+wrong_years <- artist_work$year[!str_detect(artist_work$year, "^[0-9]{4}")]
+length(wrong_years)
+wrong_years[wrong_years != ""]
+```
+
+There are `r length(wrong_years)` rows with no data. They are mostly empty strings, `r length(wrong_years[wrong_years != ""]) - 1` entries of "no data", and just 1 entry of "c.1997-9". We can convert "c.1997-9" to 1998, and safely convert the rest to NA.
+
+```{r}
+artist_work <- artist_work %>% mutate(year = replace(year, year == "c.1997-9", "1998")) %>% mutate(year = as.numeric(year))
+class(artist_work$year)
+```
+
+## Question 3: Place of Birth
+```{r}
+library(readxl)
+countries_table <- read_xlsx("../data/artists_nation.xlsx")
+
+artist_info <- artist_info %>% mutate(birth_area = str_replace_all(placeOfBirth, ".*, ", "")) %>% left_join(countries_table) %>% select(-birth_area)
+
+artist_info %>% select(name, placeOfBirth, nation)
+```
+
+Check if all the artists with a placeOfBirth get matched with a nation:
+```{r}
+artists_with_POB <- artist_info %>% select(name, placeOfBirth, nation) %>% filter(placeOfBirth != "")
+
+map(artists_with_POB, ~sum(is.na(.)))
+```
+
+## Question 4: No information
+```{r}
+no_info <- artist_work %>% anti_join(artist_info, by = c("artist" = "name")) %>% select(artist, artistId) %>% unique()
+no_info
+```
+
+## Question 5: Remove an Artist Outlier
+```{r}
+outlier_name <- artist_work %>% group_by(artist) %>% summarize(count = n()) %>% filter(count == max(count)) %>% pull(1)
+
+artist_work <- artist_work %>% filter(artist != outlier_name)
+
+dim(artist_work)
+```
+
+## Question 6: Gender counts By Century
+### join work to info
+```{r}
+step1 <- artist_info %>% select(name, gender) %>% inner_join(artist_work, by = c("name" = "artist"))
+```
+
+### remove na gender and na acq year
+```{r}
+step1 %>% select(gender) %>% unique()
+step2 <- step1 %>% drop_na(acquisitionYear) %>% filter(gender != "")
+```
+
+### extract century
+19th Century is 1801~1900 inclusive.
+20th Century is 1901~2000 inclusive.
+21st Century is 2001~2100 inclusive.
+```{r}
+step3 <- step2 %>% mutate(century = (acquisitionYear - 1) %/% 100 + 1)
+```
+
+### group by century and gender
+```{r}
+step4 <- step3 %>% unique() %>% select(century, gender) %>% group_by(century, gender) %>% summarize(count = n())
+```
+
+### pivot wider
+```{r}
+step5 <- step4 %>% pivot_wider(names_from = century, values_from = count) %>% rename("19th C." = "19", "20th C." = "20", "21st C." = "21")
+knitr::kable(step5)
+```
+
+## Question 7: Popularity of Medium
+We first load the wordcloud and textmining packages. Then, we get the tokens by breaking the mediums into individual words and converting them to lower case. After that, we kick out stopwords like paper and canvas that appear too often, and words that have length 0. Finally, we select words appearing more than 30 times to generate a word cloud.
+
+## Question 8: Versatile artists
+```{r}
+mediums_count <- artist_work %>% select(artist, medium) %>% unique() %>% group_by(artist) %>% summarize(mediums = n())
+
+work_count <- artist_work %>% select(artist, medium) %>% group_by(artist) %>% summarize(count = n()) %>% inner_join(mediums_count, by = "artist")
+
+satisfying_artists <- work_count %>% filter(count > 10, count == mediums) %>% pull(1)
+
+satisfying_artists
+
+versatile_artists <- artist_work %>% select(artist, medium, year) %>% filter(artist %in% satisfying_artists)
+
+dim(versatile_artists)
+```
+
+## Question 9: Popular artists
+```{r}
+qualified_artists <- artist_work %>% select(artistId, year) %>% group_by(artistId) %>% summarize(first = min(year), count = n()) %>% filter(first >= 1970, count >= 10) %>% pull(1)
+
+qualified_artists
+
+popular_artists <- artist_work %>% filter(artistId %in% qualified_artists) %>% mutate(diff = acquisitionYear - year) %>% group_by(artistId) %>% summarize(median_yrs = median(diff)) %>% filter(median_yrs <= 1)
+
+popular_artists
+```
+
+## Question 10: To Explore
+How old are the artists when they make the arts? Is it similar for males and females? How did the art medium change throughout the centuries? Where do the most popular artists come from? 

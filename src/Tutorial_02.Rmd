@@ -1,0 +1,101 @@
+---
+title: "Tutorial 2"
+author: "Andrew Chou"
+date: "29 August 2021"
+output:
+  html_document:
+    toc: true
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Question 1: Logarithmic Spirals
+
+```{r echo = TRUE, results = 'hide'}
+theta <- seq(from = 0, to = 6 * pi, length.out = 1000)
+r <- exp(0.2 * theta)
+x <- r * cos(theta)
+y <- r * sin(theta)
+plot(x, y, type = 'l', col = 'red',
+     bty = 'n', xlab = 'x', ylab = 'y',
+     main = 'Logarithmic spiral example
+     a=1, b=0.2')
+abline(v = 0, lty = 'dashed')
+abline(h = 0, lty = 'dashed')
+```
+
+## Question 2: Debugging Functions
+### two_step_v1 mistakes
+- line 2: condition can be simpliflied to !(h_name %in% colnames(h_dists))
+- line 3: break should be replaced with a return statement, like return("Input is incorrect.") as break is for exiting loops, not functions.
+- line 6, 7, 8: typos. h_dist should be h_dists.
+- line 7: use <- instead of = to assign.
+
+### two_step_v2 mistakes
+- line 2: converts everything to NA.
+- line 4: no need to match, can just use indexing.
+- line 10: use return instead of print.
+
+## Question 3: Wine types
+### read wine_titles.rds
+
+```{r echo = TRUE, results = 'hide'}
+wine_data <- readRDS("../data/wine_titles.rds")
+```
+
+### cleaning
+1. find absence of @ symbol in taster_twitter_handle column using regex, then reassign their correct values.
+
+```{r}
+library(stringr)
+misplaced_ids <- which(str_detect(
+  wine_data$taster_twitter_handle,  "^@", negate = TRUE))
+
+wine_data[misplaced_ids, ]
+
+for (i in misplaced_ids) {
+  temp <- wine_data[i, 1]
+  wine_data[i, 1] <- wine_data[i, 2]
+  wine_data[i, 2] <- wine_data[i, 3]
+  wine_data[i, 3] <- temp
+}
+
+wine_data[misplaced_ids, ]
+```
+
+2. row 67412 is still wrong. We can get Paul Gregutt's twitter handle from other rows, but we're not sure whether the title is Columbia Valley or Walla Walla Valley (WA). Let's keep the latter one.
+```{r}
+wine_data[67412, 1] <- "Paul Gregutt"
+wine_data[67412, 2] <- "@paulgwine"
+
+wine_data[67412, ]
+```
+
+### extract regions
+1. using regex to extract the text from the first open bracket to the last close bracket, then remove both brackets.
+```{r}
+regions <- str_extract(wine_data$title,  "\\(([^)]+)\\)+")
+rm_brackets <- function(str) {
+  return(substring(str, 2, nchar(str) - 1))
+}
+
+regions <- sapply(regions, rm_brackets)
+regions <- unname(regions)
+head(regions)
+```
+
+2. Check that there is no title with two brackets that is not nested and add column to dataframe
+```{r}
+bad <- which(str_detect(regions,  "[)].*[(]"))
+bad
+wine_data$regions <- regions
+head(wine_data)
+```
+
+### ideas to extract vintage year
+1. First, we can extract all four-digit numbers in each title.
+2. Then, we can remove numbers higher than the current year.
+3. If we have data of each winery's established year, we can also remove numbers less than its corresponding winery's established year.
+4. The highest of the remaining numbers is probably the vintage year.

@@ -1,0 +1,86 @@
+---
+title: "Tutorial 09"
+author: "Andrew Chou"
+date: "27 Oct 2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Question 1: Covid case counts in Singapore
+```{r}
+library(tidyverse)
+library(lubridate)
+
+covid <- read.csv("../data/covid_sg.csv") %>%
+  mutate(Date = dmy(Date))
+cl <- covid %>%
+  pivot_longer(cols = "Quarantined" : "Unlinked", names_to = "status", values_to = "cases") %>%
+  group_by(Date) %>%
+  mutate(total_cases = sum(cases))
+
+l1 <- "Local Linked and Already Quarantined"
+l2 <- "Local Linked and Detected through Surveillance"
+l3 <- "Local Unlinked"
+
+ggplot(cl) +
+  geom_col(aes(Date, cases, fill = status)) +
+  xlab("Press Release Date") +
+  ylab("No. of Cases") +
+  scale_fill_manual(labels = c(l1, l2, l3), values = c("#006400", "#6CA6C7", "#FFA500")) +
+  labs(caption = "Source: Ministry of Health",
+       title = "Summary of Local Covid-19 Situation",
+       subtitle = "Number of Community Linked and Unlinked Cases") +
+  theme(legend.position = "bottom",
+        legend.direction = "vertical",
+        legend.justification = "left",
+        legend.title = element_blank(),
+        plot.title = element_text(hjust = 0.5),
+        plot.subtitle = element_text(hjust = 0.5))
+```
+
+## Question 2: Covid cases and deaths around the world.
+```{r}
+clean_covid_world <- read.csv("../data/covid_world_today.csv")
+without_vanuatu <- filter(clean_covid_world, location != "Vanuatu")
+vanuatu_txt <- data.frame(x = 100, y = 2, labl = "Vanuatu", continent = "Oceania")
+
+ggplot(clean_covid_world, aes(total_cases, total_deaths, color = continent)) +
+  geom_point(alpha = 0.4) +
+  facet_wrap(~continent) +
+  scale_x_log10() +
+  scale_y_log10() +
+  geom_text(data = vanuatu_txt, aes(x, y, label = labl), show.legend = FALSE) +
+  geom_smooth(data = without_vanuatu, method = "lm", se = FALSE, lty = "dashed", color = "black") +
+  xlab("Total Cases") +
+  ylab("Total Deaths")
+```
+
+## Question 3: Olympic athletes data
+```{r, warning = FALSE}
+noc <- read.csv("../data/athlete_events.csv")
+library(GGally)
+noc %>%
+  filter(Year >= 1970, Season == "Summer", Sport %in% c("Athletics", "Swimming")) %>%
+  group_by(ID) %>%
+  summarise(Sex = Sex[1], Age = min(Age, na.rm = FALSE),
+            Height = mean(Height, na.rm = FALSE),
+            Weight = mean(Weight, na.rm = FALSE), Sport = Sport[1], Medal = any(!is.na(Medal)),
+            .groups = "drop") -> noc_tmp
+ggpairs(noc_tmp, mapping = aes(color = Sport, alpha = 0.8), columns = 2:7,
+        lower = list(continuous = "density", discrete = "crosstable"),
+        showStrips = TRUE)
+```
+
+### My observations:
+
+1. The median age of swimmers is much lower than that of athletes.
+2. The median height of medal winners is slightly more than that of non-winners.
+
+### What I would explore next:
+
+1. Has the median age of swimmers always been less than that of athletes? I will plot the median age of swimmers and athletes by year using the original data set.
+
+2. The median height of all medal winners is slightly more than that of non-winners. But is this true for every sport? Which sport has the greatest height advantage? Is there any sport with a height disadvantage? I will compare the median height of medal winners and non-winners in each sport.

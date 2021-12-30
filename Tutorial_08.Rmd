@@ -1,0 +1,105 @@
+---
+title: "Tutorial_08"
+author: "Andrew Chou"
+date: "16 Oct 2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Question 1: Taxi Locations
+
+```{r}
+library(jsonlite)
+
+get_taxi_data <- function(t) {
+  base_url <- "https://api.data.gov.sg/v1/transport/taxi-availability?date_time="
+  t_str <- as.character(t)
+  substr(t_str, 11, 11) <- "T"
+  final_url <- paste0(base_url, t_str)
+  taxi_data <- fromJSON(final_url)
+  class(taxi_data) <- "taxi_json"
+  return(taxi_data)
+}
+
+dt1 <- as.POSIXct("2021-01-10 09:00:00")
+wet_day_locs <- get_taxi_data(dt1)
+str(wet_day_locs, max.levels = 1)
+
+library(sf)
+
+as.data.frame.taxi_json <- function(x) {
+  t_coords <- as.data.frame(x$features$geometry$coordinates[[1]])
+  taxis <- st_as_sf(t_coords, coords = c(1, 2))
+  st_crs(taxis) <- 4326
+  taxis <- st_transform(taxis, 3414)
+  return(taxis)
+}
+
+wet <- as.data.frame(wet_day_locs)
+wet
+
+pln_areas <- readRDS("../data/sg_planning_areas.rds")
+
+dt2 <- as.POSIXct("2021-01-17 09:00:00")
+dry_day_locs <- get_taxi_data(dt2)
+dry <- as.data.frame(dry_day_locs)
+```
+
+## Question 2: Distributions
+```{r}
+wet_count <- sapply(st_contains(pln_areas, wet), length)
+dry_count <- sapply(st_contains(pln_areas, dry), length)
+
+# remove units
+library(units)
+library(tidyverse)
+
+# add column: taxis_per_sqkm_dry, taxis_per_sqkm_dry
+taxi_count <- pln_areas %>%
+  select(PLN_AREA_N, geometry) %>%
+  mutate(area = drop_units(st_area(pln_areas$geometry)) / 1000000, taxis_per_sqkm_dry = dry_count / area, taxis_per_sqkm_wet = wet_count / area)
+
+```
+
+### Geospacial distribution: heatmap
+```{r}
+plot(taxi_count["taxis_per_sqkm_dry"], axes = TRUE, breaks = c(seq(0, 3.5, by = 0.5)) ^ 3, main = "Taxis per km^2 on a Dry Day")
+plot(taxi_count["taxis_per_sqkm_wet"], axes = TRUE, breaks = c(seq(0, 3.5, by = 0.5)) ^ 3, main = "Taxis per km^2 on a Wet Day")
+```
+
+### density distributions
+```{r}
+ggplot() +
+  geom_density(data = taxi_count, mapping = aes(taxis_per_sqkm_dry), color = "red") +
+  geom_density(data = taxi_count, mapping = aes(taxis_per_sqkm_wet), color = "blue") +
+  scale_x_log10(limits = c(0.01, 40)) +
+  theme(legend.position = "none") +
+  geom_text(aes(x = 2, y = 0.3, label = "Dry Day"), color = "red") +
+  geom_text(aes(x = 2, y = 0.6, label = "Wet Day"), color = "blue") +
+  xlab("Taxis per km^2 in a Town") +
+  ylab("Density") +
+  ggtitle("Density Plot of Taxis per km^2 in a Town, Dry vs Wet")
+```
+
+## Question 3: Comparisons
+```{r}
+taxi_count <- taxi_count %>%
+  mutate(dry_count = dry_count, wet_count = wet_count) %>%
+  arrange(desc(wet_count))
+
+ggplot() +
+  geom_segment(data = taxi_count, mapping = aes(x = wet_count, xend = dry_count, y = factor(PLN_AREA_N, levels = rev(PLN_AREA_N)), yend = factor(PLN_AREA_N, levels = rev(PLN_AREA_N)))) +
+  geom_point(data = taxi_count, mapping = aes(x = wet_count, y = factor(PLN_AREA_N, levels = rev(PLN_AREA_N))), color = "blue") +
+  geom_point(data = taxi_count, mapping = aes(x = dry_count, y = factor(PLN_AREA_N, levels = rev(PLN_AREA_N))), color = "red") +
+  xlab("Taxi Count") +
+  ylab("Planning area") +
+  geom_segment(aes(x = 150, xend = 170, y = 10, yend = 10)) +
+  geom_point(aes(x = 150, y = 10), color = "blue") +
+  geom_point(aes(x = 170, y = 10), color = "red") +
+  geom_text(aes(x = 130, y = 10, label = "Wet Count")) +
+  geom_text(aes(x = 190, y = 10, label = "Dry Count")) +
+  xlim(c(-10, 210))
+```

@@ -1,0 +1,104 @@
+---
+title: "Tutorial 11"
+author: "Andrew Chou"
+date: "10 November 2021"
+output:
+  html_document:
+    toc: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+# Exploring Artists Data
+```{r}
+library(tidyverse)
+artist_info <- as.tibble(read.csv("../data/artist_data.csv", fileEncoding = "UTF-8-BOM"))
+artist_info <- artist_info
+artist_work <- as.tibble(read.csv("../data/artwork_data.csv", fileEncoding = "UTF-8-BOM"))
+wrong_years <- artist_work$year[!str_detect(artist_work$year, "^[0-9]{4}")]
+artist_work <- artist_work %>% mutate(year = replace(year, year == "c.1997-9", "1998")) %>% mutate(year = as.numeric(year), width = as.numeric(width), height = as.numeric(height))
+library(readxl)
+countries_table <- read_xlsx("../data/artists_nation.xlsx")
+artist_info <- artist_info %>% mutate(birth_area = str_replace_all(placeOfBirth, ".*, ", "")) %>% left_join(countries_table) %>% select(-birth_area)
+outlier_name <- artist_work %>% group_by(artist) %>% summarize(count = n()) %>% filter(count == max(count)) %>% pull(1)
+artist_work <- artist_work %>% filter(artist != outlier_name)
+```
+
+# What is the relationship between dimension of an artwork and the medium used?
+I'm interested to find out because I'm curious about how big or small an artwork can be in each category.
+
+
+## width vs height vs medium vs gender
+```{r}
+top_9_mediums <- artist_work %>% group_by(medium) %>% count() %>% arrange(desc(n)) %>% head(9) %>% pull(1)
+
+popular_mediums_art <- artist_work %>%
+  filter(medium %in% top_9_mediums) %>%
+  drop_na(width, height)
+
+popular_mediums_art_gender <- artist_info %>%
+  select(name, gender) %>%
+  inner_join(popular_mediums_art, by = c("name" = "artist")) %>%
+  group_by(medium, gender) %>%
+  mutate(med_width = median(width),
+         med_height = median(height),
+         aspect_ratio = width / height) %>%
+  filter(gender != "")
+
+ggplot(popular_mediums_art_gender, aes(width, height, color = gender)) +
+  geom_point(alpha = 0.05) +
+  scale_x_log10() +
+  scale_y_log10() +
+  facet_wrap(~medium) +
+  geom_hline(aes(yintercept = med_height, group = medium, color = gender)) +
+  geom_vline(aes(xintercept = med_width, group = medium, color = gender)) +
+  coord_fixed(ratio = 1) +
+  ggtitle("Width vs Height vs Medium vs Gender") +
+  xlab("width (mm)") +
+  ylab("height (mm)")
+```
+
+I looked at the top nine popular mediums in the data set, which includes around 14k paintings. In this visualization, I facet using mediums and color according to gender. We can see that for both male and female artists, **Oil paint on canvas** has the biggest median width and height. It is 902x914 mm for women, and 787x828 mm for men. For males, **Graphite on paper** has the smallest median dimension: 183x191 mm, while for females, **Graphite and watercolour on paper** has the smallest median dimension: 174x207 mm.
+
+```{r}
+knitr::kable(popular_mediums_art_gender %>% distinct(med_width, med_height) %>% arrange(desc(med_width * med_height)))
+```
+
+For most mediums, the median width and height of artworks are pretty similar for male and female artists. The only exception is **Ink on paper**. For this category, both the median width and median height of females is more than double those of males.
+
+## aspect ratio vs medium vs gender
+In the previous visualization, I also observed that for all the mediums, there seem to be **two parallel diagonal lines**. This could mean that there are two popular aspect ratios of the artwork. I define the aspect ratio of an artwork to be width/height. This means if the aspect ratio is less than 1, the artwork is tall (portrait). Otherwise, the artwork is wide (landscape).
+```{r}
+ggplot(popular_mediums_art_gender, aes(aspect_ratio, color = gender)) +
+  geom_density(size = 1) +
+  facet_wrap(~medium) +
+  xlim(c(0, 3)) +
+  ylim(c(0, 2)) +
+  ggtitle("Aspect Ratio vs Medium vs Gender")
+```
+
+As we can see in this visualization, almost all mediums display a **bimodal distribution** on aspect ratio. The two modes are around 0.6~0.8 and 1.2~1.5. This could be because most types of paper have a long side $\sqrt{2}$ times longer than the short side. Also, artists generally prefer tall artwork. Surprisingly, there are not a lot of square artworks. However, there are some exceptions in two categories. Let's dig deeper.
+
+### Intaglio print on paper, Female
+```{r}
+popular_mediums_art_gender %>% filter(aspect_ratio > 0.9, aspect_ratio < 1.11, gender == "Female", medium == "Intaglio print on paper") %>% group_by(name) %>% count() %>% arrange(desc(n))
+```
+
+I define an aspect ratio between 0.9 and 1.11 as a square artwork. Upon further inspection, **Lim, Kim** contributes to the spike of square artworks in the (Intaglio print on paper, Female) combination.
+
+### Screenprint on paper, Male
+```{r}
+popular_mediums_art_gender %>% filter(aspect_ratio > 0.9, aspect_ratio < 1.11, gender == "Male", medium == "Screenprint on paper") %>% group_by(name) %>% count() %>% arrange(desc(n))
+```
+
+In the (Screenprint on paper, Male) combination, there are 80 distinct artists who contributed to the spike of square artworks.
+
+### Extra observations
+In all the artwork using the Graphite on paper medium, male artists prefer tall artworks, while female artists prefer wide artworks. 
+```{r}
+popular_mediums_art_gender %>% filter(aspect_ratio > 1.2, aspect_ratio < 1.4, gender == "Female", medium == "Graphite on paper") %>% group_by(name) %>% count() %>% arrange(desc(n))
+```
+
+**Wharncliffe, Lady** contributed 40 wide artworks in the (Graphite on paper, Female) combination, leading to the spike.

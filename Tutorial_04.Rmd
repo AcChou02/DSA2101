@@ -1,0 +1,84 @@
+---
+title: "Tutorial 4"
+author: "Andrew Chou"
+date: "15 Spetember 2021"
+output:
+  html_document:
+    toc: true
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Question 1: get_taxi_data
+```{r}
+library(jsonlite)
+
+get_taxi_data <- function(t) {
+  base_url <- "https://api.data.gov.sg/v1/transport/taxi-availability?date_time="
+  t_str <- as.character(t)
+  substr(t_str, 11, 11) <- "T"
+  final_url <- paste0(base_url, t_str)
+  taxi_data <- fromJSON(final_url)
+  class(taxi_data) <- "taxi_json"
+  return(taxi_data)
+}
+
+dt1 <- as.POSIXct("2021-01-10 09:00:00")
+wet_day_locs <- get_taxi_data(dt1)
+str(wet_day_locs, max.levels = 1)
+```
+
+## Question 2: Inspect the object
+### summary.taxi_json
+```{r}
+summary.taxi_json <- function(data) {
+  cat("Taxi count:", data[[3]][[3]][[2]], "\n")
+  cat("Actual timestamp:", data[[3]][[3]][[1]])
+}
+summary(wet_day_locs)
+```
+
+### as.data.frame.taxi_json
+```{r}
+library(sf)
+
+as.data.frame.taxi_json <- function(x) {
+  t_coords <- as.data.frame(x$features$geometry$coordinates[[1]])
+  taxis <- st_as_sf(t_coords, coords = c(1, 2))
+  st_crs(taxis) <- 4326
+  taxis <- st_transform(taxis, 3414)
+  return(taxis)
+}
+
+wet <- as.data.frame(wet_day_locs)
+wet
+```
+
+## Question 3: plot the map
+```{r}
+pln_areas <- readRDS("../data/sg_planning_areas.rds")
+
+dt2 <- as.POSIXct("2021-01-17 09:00:00")
+dry_day_locs <- get_taxi_data(dt2)
+dry <- as.data.frame(dry_day_locs)
+
+par(mfrow = c(1, 2))
+plot(st_geometry(pln_areas), axes = TRUE, main = "Wet Day")
+plot(st_geometry(wet), pch = "+", add = TRUE, col = grey(0.3, 0.4))
+plot(st_geometry(pln_areas), axes = TRUE, main = "Dry Day")
+plot(st_geometry(dry), pch = "+", add = TRUE, col = grey(0.3, 0.4))
+```
+
+## Question 4: scatterplot
+```{r}
+wet_count <- sapply(st_contains(pln_areas, wet), length)
+dry_count <- sapply(st_contains(pln_areas, dry), length)
+taxi_count_df <- data.frame(pln_areas$PLN_AREA_C, wet_count, dry_count)
+
+par(mfrow = c(1, 1))
+plot(taxi_count_df$wet_count, taxi_count_df$dry_count, pch = 19, col = grey(0.4, 0.4), xlab = "Wet Count", ylab = "Dry Count", main = "Dry vs. Wet Day")
+abline(b = 1, a = 0, lty = 2, col = "red")
+text(taxi_count_df$wet_count,  taxi_count_df$dry_count, labels = taxi_count_df$pln_areas.PLN_AREA_C, cex = 0.7, pos = 1)
+```

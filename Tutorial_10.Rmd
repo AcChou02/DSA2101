@@ -1,0 +1,79 @@
+---
+title: "Tutorial 10"
+author: "Andrew Chou"
+date: "3 November 2021"
+output:
+  html_document:
+    toc: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Question 1: Absence times
+```{r, warning = FALSE, message = FALSE}
+library(tidyverse)
+absent <- read_csv2("../data/Absenteeism_at_work.csv") %>%
+  mutate(ID = factor(ID)) %>%
+  filter(`Disciplinary failure` == 0)
+
+correct_order <- absent %>%
+  group_by(ID) %>%
+  summarize(total = sum(`Absenteeism time in hours`)) %>%
+  arrange(total) %>%
+  pull(1)
+
+ggplot(absent, aes(ID, `Absenteeism time in hours`, fill = `Absenteeism time in hours`)) +
+  geom_col(color = "white") +
+  scale_x_discrete(limits = correct_order) +
+  coord_flip() +
+  labs(x = "Courier ID", y = "Hours", fill = "Time (hrs)") +
+  ggtitle("Accumulated and Individual Absence Times")
+```
+
+## Question 2: Proportion of Absences by Season and Day
+I decide to use a facted bar plot because it is simple.
+```{r}
+absent <- absent %>%
+  mutate(`Day of the week` = recode(`Day of the week`, `2` = "Mon", `3` = "Tue", `4` = "Wed", `5` = "Thu", `6` = "Fri")) %>%
+  mutate(Seasons = recode(Seasons, `1` = "Summer", `2` = "Autumn", `3` = "Winter", `4` = "Spring"))
+
+rows <- nrow(absent)
+seasons_tbl <- absent %>%
+  group_by(Seasons) %>%
+  count()
+
+absence_props <- absent %>%
+  group_by(Seasons, `Day of the week`) %>%
+  count() %>%
+  full_join(seasons_tbl, by = "Seasons") %>%
+  mutate(n = n.x, prop = n.x / n.y) %>%
+  select(-c(n.x, n.y))
+
+ggplot(absence_props, aes(`Day of the week`, prop)) +
+  geom_col() +
+  facet_grid(~ Seasons) +
+  scale_x_discrete(limits = c("Mon", "Tue", "Wed", "Thu", "Fri")) +
+  ylab("Proportion of absences within the season") +
+  ggtitle("Proportion of Absences by Season and Day")
+```
+
+## Question 3: Proportion of absences on Days, by courier
+Draw a stacked bar chart similar to that of Q1.
+```{r}
+courier_pattern <- absent %>%
+  group_by(ID, `Day of the week`) %>%
+  summarize(time = sum(`Absenteeism time in hours`)) %>%
+  mutate(`Day of the week` = factor(`Day of the week`, levels = c("Fri", "Thu", "Wed", "Tue", "Mon")))
+
+ggplot(courier_pattern, aes(ID, time, fill = `Day of the week`)) +
+  geom_col() +
+  scale_x_discrete(limits = correct_order) +
+  coord_flip() +
+  labs(x = "Courier ID", y = "Hours", fill = "Day of the Week") +
+  scale_fill_discrete(guide = guide_legend(reverse = TRUE)) +
+  ggtitle("Accumulated and Individual Absence Times by Day of Week")
+```
+
+We can start to see patterns. For example, over half of courier 14's absent time is on Mondays. Almost all of courier 36's absent time is on Wednesdays.
